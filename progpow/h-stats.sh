@@ -1,69 +1,47 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-. $MINER_DIR/$CUSTOM_MINER/h-manifest.conf
 
-if [[ -z $CUSTOM_LOG_BASENAME ]]; then
-    LOG="energiminer.log"
+stats_raw=`echo '{"id":0,"jsonrpc":"2.0","method":"miner_getstat1"}' | nc -w $API_TIMEOUT localhost $MINER_API_PORT | jq '.result'`
+if [[ $? -ne 0  || -z $stats_raw ]]; then
+	echo -e "${YELLOW}Failed to read $miner stats_raw from localhost:$MINER_API_PORT${NOCOLOR}"
 else
-    LOG="$CUSTOM_LOG_BASENAME.log"
+	khs=`echo $stats_raw | jq -r '.[2]' | awk -F';' '{print $1}'`
+	#`echo $stats_raw | jq -r '.[3]' | awk 'gsub(";", "\n")' | jq -cs .` #send only hashes
+	local tempfans=`echo $stats_raw | jq -r '.[6]' | tr ';' ' '` #"56 26  48 42"
+	local temp=()
+	local fan=()
+	local tfcounter=0
+	for tf in $tempfans; do
+		(( $tfcounter % 2 == 0 )) &&
+			temp+=($tf) ||
+			fan+=($tf)
+		((tfcounter++))
+	done
+	temp=`printf '%s\n' "${temp[@]}" | jq --raw-input . | jq --slurp -c .`
+	fan=`printf '%s\n' "${fan[@]}" | jq --raw-input . | jq --slurp -c .`
+
+	#ethminer API can show hashes, but no load... hard to fix it here
+	#local hs=(`echo "$stats_raw" | jq -r '.[3]' | tr ';' ' '`)
+	#echo ${hs[0]}
+
+	local hs=`echo "$stats_raw" | jq -r '.[3]' | tr ';' '\n' | jq -cs '.'`
+
+	local ac=`echo $stats_raw | jq -r '.[2]' | awk -F';' '{print $2}'`
+	local rj=`echo $stats_raw | jq -r '.[2]' | awk -F';' '{print $3}'`
+	local ver=`echo $stats_raw | jq -r '.[0]'`
+
+	local algo="progpow"
+	[[ $ETHMINER_FORK == "progpow" ]] && algo="progpow"
+	[[ $ETHMINER_FORK == "serominer" ]] && algo="progpow"
+	[[ $ETHMINER_FORK == "ubqminer" ]] && algo="ubiqhash"
+	[[ $ETHMINER_FORK == "zilminer" ]] && algo="zilliqahash"
+	[[ $ETHMINER_FORK == "teominer" ]] && algo="tethashv1"
+	stats=$(jq -n \
+		--arg uptime "`echo \"$stats_raw\" | jq -r '.[1]' | awk '{print $1*60}'`" \
+		--argjson hs "$hs" --argjson temp "$temp" --argjson fan "$fan" \
+		--arg algo "$algo" \
+		--arg ac "$ac" --arg rj "$rj" \
+		--arg ver "$ver" \
+		'{$hs, $temp, $fan, $uptime, $algo, ar: [$ac, $rj], $ver}')
+		#TODO: bus_numbers
 fi
-
-local stats_raw=`cat ${LOG} | tail -n 100 | sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g" | grep -w "progpow" | tail -n 1 | grep "^ m "`
-
-#Calculate miner log freshness
-local maxDelay=120
-local time_now=`date +%T | awk -F: '{ print ($1 * 3600) + $2*60 + $3 }'`
-local time_rep=`echo $stats_raw | awk '{ print $2 }' | awk -F: '{ print ($1 * 3600) + $2*60 + $3 }'`
-local diffTime=`echo $((time_now-time_rep)) | tr -d '-'`
-
-if [ "$diffTime" -lt "$maxDelay" ]; then
-	# Total reported hashrate MHs
-	local total_hashrate=$((grep "Speed" | awk '{ print $5 }') <<< $stats_raw)
-
-	# Hashrate, temp, fans per card
-	local cards=`echo "$stats_raw" | sed 's/^.*Mh\/s[[:space:]]*//' | sed 's/GPU\//#/g' | cut -f1 -d '[' | cut -c 2- | tr '#' '\n'`
-	local hashrate='[]'
-	local temp='[]'
-	local fan='[]'
-
-	while read -s line; do
-		local gpu_h=`echo $line | awk '{ print $2 }'`
-		local gpu_t=`echo $line | awk '{ print $3 }' | cut -c -2`
-		local gpu_f=`echo $line | awk '{ print $4 }' | cut -c -2`
-		local hashrate=`jq --null-input --argjson hashrate "$hashrate" --argjson gpu_h "$gpu_h" '$hashrate + [$gpu_h]'`
-		local temp=`jq --null-input --argjson temp "$temp" --argjson gpu_t "$gpu_t" '$temp + [$gpu_t]'`
-		local fan=`jq --null-input --argjson fan "$fan" --argjson gpu_f "$gpu_f" '$fan + [$gpu_f]'`
-	done <<< "$cards"
-
-	# Miner uptime
-#	local uptime=`echo "$stats_raw" | sed -e 's/^.*\<Time\>\://g' | awk -F: '{ print ($1 * 3600) + $2*60 }'`
-	local uptime=`echo "$stats_raw" | sed 's/^.*\<Time\>: //' | awk -F: '{ print ($1 * 3600) + $2*60 }'`
-	# A/R
-	eval `echo "$stats_raw" | cut -f 2 -d '[' | cut -f 1 -d ']' | tr -d ',' | sed 's/^A/acc=/g' | sed 's/R/rej=/g' | tr ':' ' '`
-	[[ -z $acc ]] && acc=0
-	[[ -z $rej ]] && rej=0
-
-	[[ -z $CUSTOM_VERSION ]] && CUSTOM_VERSION="1.1.3"
-	stats=$(jq -nc  \
-			--argjson hs "$hashrate" \
-			--argjson temp "$temp" \
-			--argjson fan "$fan" \
-			--arg uptime "`echo $uptime`" \
-			--arg acc "$acc" \
-			--arg rej "$rej" \
-			--arg ver "$CUSTOM_VERSION" \
-			'{ hs: $hs, hs_units: "mhs", temp: $temp, fan: $fan, uptime: $uptime, ar: [$acc, $rej], algo: "energihash", ver: $ver }')
-
-	# total hashrate: miner reports in mhs, so convert to khs
-	khs=`echo $total_hashrate | awk '{ printf($1*1000) }'`
-else
-	khs=0
-	stats="null"
-fi
-
-[[ -z $khs ]]   && khs=0
-[[ -z $stats ]] && stats="null"
-
-# DEBUG output
-#echo $stats | jq -c -M '.'
-#echo $khs

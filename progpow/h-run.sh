@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 
+#try to release TIME_WAIT sockets
+while true; do
+	for con in `netstat -anp | grep TIME_WAIT | grep $MINER_API_PORT | awk '{print $5}'`; do
+		killcx $con lo
+	done
+	netstat -anp | grep TIME_WAIT | grep $MINER_API_PORT &&
+		continue ||
+		break
+done
+
+
 # Memory pool tuning
 export GPU_FORCE_64BIT_PTR=1
 export GPU_MAX_HEAP_SIZE=100
