@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 
-stats_raw=`echo '{"id":0,"jsonrpc":"2.0","method":"miner_getstat1"}' | nc -w $API_TIMEOUT localhost $MINER_API_PORT | jq '.result'`
+stats_raw=`echo '{"id":0,"jsonrpc":"2.0","method":"miner_getstat1"}' | nc -w $API_TIMEOUT localhost 3334 | jq '.result'`
 if [[ $? -ne 0  || -z $stats_raw ]]; then
-	echo -e "${YELLOW}Failed to read $miner stats_raw from localhost:$MINER_API_PORT${NOCOLOR}"
+	echo -e "${YELLOW}Failed to read $miner stats_raw from localhost:3334${NOCOLOR}"
 else
 	khs=`echo $stats_raw | jq -r '.[2]' | awk -F';' '{print $1}'`
 	#`echo $stats_raw | jq -r '.[3]' | awk 'gsub(";", "\n")' | jq -cs .` #send only hashes
@@ -31,11 +31,6 @@ else
 	local ver=`echo $stats_raw | jq -r '.[0]'`
 
 	local algo="progpow"
-	[[ $ETHMINER_FORK == "progpow" ]] && algo="progpow"
-	[[ $ETHMINER_FORK == "serominer" ]] && algo="progpow"
-	[[ $ETHMINER_FORK == "ubqminer" ]] && algo="ubiqhash"
-	[[ $ETHMINER_FORK == "zilminer" ]] && algo="zilliqahash"
-	[[ $ETHMINER_FORK == "teominer" ]] && algo="tethashv1"
 	stats=$(jq -n \
 		--arg uptime "`echo \"$stats_raw\" | jq -r '.[1]' | awk '{print $1*60}'`" \
 		--argjson hs "$hs" --argjson temp "$temp" --argjson fan "$fan" \
