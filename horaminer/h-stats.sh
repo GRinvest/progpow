@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-. h-manifest.conf
+. $MINER_DIR/$CUSTOM_MINER/h-manifest.conf
 
 stats_raw=`echo '{"id":0,"jsonrpc":"2.0","method":"miner_getstat1"}' | nc -w $API_TIMEOUT localhost $CUSTOM_API_PORT | jq '.result'`
 if [[ $? -ne 0  || -z $stats_raw ]]; then
