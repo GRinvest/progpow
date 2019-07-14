@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
 #try to release TIME_WAIT sockets
+. h-manifest.conf
+
+[[ `ps aux | grep "./$CUSTOM_NAME" | grep -v grep | wc -l` != 0 ]] &&
+	echo -e "${RED}${CUSTOM_NAME} miner is already running${NOCOLOR}" &&
+	exit 1
+
 while true; do
 	for con in `netstat -anp | grep TIME_WAIT | grep $MINER_API_PORT | awk '{print $5}'`; do
 		killcx $con lo
@@ -22,11 +28,6 @@ cd `dirname $0`
 
 [ -t 1 ] && . colors
 
-. h-manifest.conf
-
-#echo $CUSTOM_MINER
-#echo $CUSTOM_LOG_BASENAME
-#echo $CUSTOM_CONFIG_FILENAME
 
 [[ -z $CUSTOM_LOG_BASENAME ]] && echo -e "${RED}No CUSTOM_LOG_BASENAME is set${NOCOLOR}" && exit 1
 [[ -z $CUSTOM_CONFIG_FILENAME ]] && echo -e "${RED}No CUSTOM_CONFIG_FILENAME is set${NOCOLOR}" && exit 1
